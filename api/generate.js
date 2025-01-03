@@ -73,26 +73,33 @@ Each prompt must include:
               name: "FluxPromptsResponse",
               description: "A structured response containing image prompts for a vision board",
               schema: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    imageNumber: {
-                      type: "integer",
-                      minimum: 1,
-                      maximum: 49
-                    },
-                    imagePrompt: {
-                      type: "string"
-                    },
-                    imageRatio: {
-                      type: "string",
-                      enum: ["1:1", "3:4", "4:3", "16:9"]
+                type: "object",
+                properties: {
+                  prompts: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        imageNumber: {
+                          type: "integer",
+                          minimum: 1,
+                          maximum: 49
+                        },
+                        imagePrompt: {
+                          type: "string"
+                        },
+                        imageRatio: {
+                          type: "string",
+                          enum: ["1:1", "3:4", "4:3", "16:9"]
+                        }
+                      },
+                      required: ["imageNumber", "imagePrompt", "imageRatio"],
+                      additionalProperties: false
                     }
-                  },
-                  required: ["imageNumber", "imagePrompt", "imageRatio"],
-                  additionalProperties: false
-                }
+                  }
+                },
+                required: ["prompts"],
+                additionalProperties: false
               },
               strict: true
             }
@@ -123,7 +130,8 @@ Each prompt must include:
       const content = response.choices[0].message.content;
       console.log('📄 Raw content:', content);
       
-      const promptsData = JSON.parse(content);
+      const data = JSON.parse(content);
+      const promptsData = data.prompts;
       return promptsData.sort((a, b) => a.imageNumber - b.imageNumber);
     } catch (parseError) {
       console.error('Parse error:', parseError);
