@@ -1,12 +1,11 @@
 // api/generate.js
 export const config = {
   runtime: 'edge',
-  regions: ['iad1'], // US East (N. Virginia) for faster response times
+  regions: ['iad1'], // US East (N. Virginia)
 };
 
-const API_TIMEOUT = 25000; // 25 second timeout
+const API_TIMEOUT = 25000;
 
-// Utility to handle API timeouts
 const fetchWithTimeout = async (url, options, timeout) => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -38,42 +37,20 @@ Establishing Shots (#6-9): ratio "16:9"
 Editorial Vignettes (#10-19): ratio "4:3" for #10 & #19, "3:4" for #11-18
 Close-Up Shots (#20-31): ratio "1:1"
 Macro Shots (#32-35): ratio "1:1"
-Contextual Shots (#36-49): ratio "4:3"`;
+Contextual Shots (#36-49): ratio "4:3"
+
+Each prompt must include:
+1. Shot type and composition
+2. Subject (use "Me, a woman/man" for portraits)
+3. Environment details
+4. Key visual elements
+5. Mood and atmosphere
+6. Style ("iPhone")
+7. Lighting and color tones`;
 
     console.log('📤 Sending request to OpenAI API...');
     console.time('OpenAI API Request');
 
-    const response_format = {
-      type: "json_schema",
-      json_schema: {
-        name: "FluxPromptsResponse",
-        description: "A structured response containing image prompts for a vision board",
-        schema: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              imageNumber: {
-                type: "integer",
-                minimum: 1,
-                maximum: 49
-              },
-              imagePrompt: {
-                type: "string"
-              },
-              imageRatio: {
-                type: "string",
-                enum: ["1:1", "3:4", "4:3", "16:9"]
-              }
-            },
-            required: ["imageNumber", "imagePrompt", "imageRatio"],
-            additionalProperties: false
-          }
-        },
-        strict: true
-      }
-    };
-    
     const completion = await fetchWithTimeout(
       'https://api.openai.com/v1/chat/completions',
       {
@@ -90,7 +67,36 @@ Contextual Shots (#36-49): ratio "4:3"`;
           ],
           temperature: 0.7,
           max_tokens: 2000,
-          response_format
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "FluxPromptsResponse",
+              description: "A structured response containing image prompts for a vision board",
+              schema: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    imageNumber: {
+                      type: "integer",
+                      minimum: 1,
+                      maximum: 49
+                    },
+                    imagePrompt: {
+                      type: "string"
+                    },
+                    imageRatio: {
+                      type: "string",
+                      enum: ["1:1", "3:4", "4:3", "16:9"]
+                    }
+                  },
+                  required: ["imageNumber", "imagePrompt", "imageRatio"],
+                  additionalProperties: false
+                }
+              },
+              strict: true
+            }
+          }
         })
       },
       API_TIMEOUT
@@ -109,7 +115,6 @@ Contextual Shots (#36-49): ratio "4:3"`;
     const response = await completion.json();
     console.log('📥 OpenAI API Response:', response);
 
-    // Check for refusal
     if (response.choices[0].message.refusal) {
       throw new Error(`Model refused to generate response: ${response.choices[0].message.refusal}`);
     }
@@ -118,10 +123,7 @@ Contextual Shots (#36-49): ratio "4:3"`;
       const content = response.choices[0].message.content;
       console.log('📄 Raw content:', content);
       
-      // Parse the response - it's guaranteed to match our schema
       const promptsData = JSON.parse(content);
-      
-      // Just sort by image number
       return promptsData.sort((a, b) => a.imageNumber - b.imageNumber);
     } catch (parseError) {
       console.error('Parse error:', parseError);
@@ -182,7 +184,6 @@ export default async function handler(req) {
     }
 
     console.log('⚡ Starting parallel prompt generation...');
-    // Generate prompts in parallel for better performance
     const [firstHalf, secondHalf] = await Promise.all([
       generatePrompts(body.prompt, 1, 24),
       generatePrompts(body.prompt, 25, 49)
