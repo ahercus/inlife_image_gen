@@ -1,7 +1,7 @@
 // api/generate.js
 export const config = {
   runtime: 'edge',
-  regions: ['iad1'], // US East (N. Virginia)
+  regions: ['iad1'],
 };
 
 const API_TIMEOUT = 25000;
@@ -46,7 +46,9 @@ Each prompt must include:
 4. Key visual elements
 5. Mood and atmosphere
 6. Style ("iPhone")
-7. Lighting and color tones`;
+7. Lighting and color tones
+
+Image numbers must be between 1 and 49.`;
 
     console.log('📤 Sending request to OpenAI API...');
     console.time('OpenAI API Request');
@@ -70,6 +72,7 @@ Each prompt must include:
           response_format: {
             type: "json_schema",
             json_schema: {
+              strict: true,
               name: "FluxPromptsResponse",
               description: "A structured response containing image prompts for a vision board",
               schema: {
@@ -81,9 +84,7 @@ Each prompt must include:
                       type: "object",
                       properties: {
                         imageNumber: {
-                          type: "integer",
-                          minimum: 1,
-                          maximum: 49
+                          type: "integer"
                         },
                         imagePrompt: {
                           type: "string"
@@ -100,8 +101,7 @@ Each prompt must include:
                 },
                 required: ["prompts"],
                 additionalProperties: false
-              },
-              strict: true
+              }
             }
           }
         })
