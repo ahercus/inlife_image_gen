@@ -70,11 +70,28 @@ const generatePrompts = async (prompt, model, start, end) => {
     }
 
     const response = await completion.json();
-    return JSON.parse(response.choices[0].message.content);
+    const content = response.choices[0].message.content;
+    
+    // Make sure we can parse the content
+    try {
+      const parsedContent = JSON.parse(content);
+      // Ensure it has a data property with our array
+      if (parsedContent && Array.isArray(parsedContent.data)) {
+        return parsedContent.data;
+      }
+      // If it's already an array, return it
+      if (Array.isArray(parsedContent)) {
+        return parsedContent;
+      }
+      throw new Error('Invalid response format');
+    } catch (parseError) {
+      console.error('Parse error:', parseError);
+      throw new Error('Failed to parse AI response');
+    }
 
   } catch (error) {
     console.error("Error generating prompts:", error);
-    return { message: "An error occurred while generating prompts." };
+    return { message: error.message || "An error occurred while generating prompts." };
   }
 };
 
@@ -103,16 +120,14 @@ export default async function handler(req) {
       });
     }
 
-    // Generate both halves of the prompts in parallel
-    const [firstHalfPrompts, secondHalfPrompts] = await Promise.all([
-      generatePrompts(prompt, "gpt-4o", 1, 24),
-      generatePrompts(prompt, "gpt-4o", 25, 49),
-    ]);
-
-    // Check for error messages from either half
-    if (firstHalfPrompts.message || secondHalfPrompts.message) {
+    // Generate first half of prompts
+    console.log('Generating first half...');
+    const firstHalfPrompts = await generatePrompts(prompt, "gpt-4o", 1, 24);
+    
+    // Check for errors in first half
+    if (firstHalfPrompts.message) {
       return new Response(
-        JSON.stringify({ message: firstHalfPrompts.message || secondHalfPrompts.message }), 
+        JSON.stringify({ message: firstHalfPrompts.message }), 
         {
           status: 400,
           headers: { 'Content-Type': 'application/json' },
@@ -120,18 +135,27 @@ export default async function handler(req) {
       );
     }
 
-    // Combine results
-    const combinedPrompts = [...firstHalfPrompts, ...secondHalfPrompts];
-
-    // Validate the combined results
-    if (!Array.isArray(combinedPrompts) || combinedPrompts.length !== 49) {
+    // Generate second half of prompts
+    console.log('Generating second half...');
+    const secondHalfPrompts = await generatePrompts(prompt, "gpt-4o", 25, 49);
+    
+    // Check for errors in second half
+    if (secondHalfPrompts.message) {
       return new Response(
-        JSON.stringify({ message: 'Invalid response format from AI model' }), 
+        JSON.stringify({ message: secondHalfPrompts.message }), 
         {
-          status: 500,
+          status: 400,
           headers: { 'Content-Type': 'application/json' },
         }
       );
+    }
+
+    // Both calls succeeded, combine the results
+    const combinedPrompts = [...firstHalfPrompts, ...secondHalfPrompts];
+
+    // Validate the combined results
+    if (!Array.isArray(combinedPrompts)) {
+      throw new Error('Invalid response format from AI model');
     }
 
     return new Response(JSON.stringify(combinedPrompts), {
@@ -142,7 +166,7 @@ export default async function handler(req) {
   } catch (error) {
     console.error("Error during processing:", error);
     return new Response(
-      JSON.stringify({ message: 'Internal server error.' }), 
+      JSON.stringify({ message: error.message || 'Internal server error.' }), 
       {
         status: 500,
         headers: { 'Content-Type': 'application/json' },
