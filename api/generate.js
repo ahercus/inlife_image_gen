@@ -7,7 +7,7 @@ const generatePrompts = async (prompt, model, start, end) => {
   try {
     const systemPrompt = `You are a helpful assistant that generates optimized image prompts for Flux based on the user's vision. Generate prompts for image numbers ${start} through ${end} only.
 
-Return a JSON array containing objects with exactly these fields:
+Format your response as a JSON array containing objects with exactly these fields:
 - imageNumber (number)
 - imagePrompt (string)
 - imageRatio (string)
@@ -29,6 +29,7 @@ Each imagePrompt must include in this order:
 6. Style ("iPhone")
 7. Lighting and color tones
 
+IMPORTANT: Respond ONLY with the JSON array. Do not include any additional text or explanation.
 Keep prompts under 75 tokens. No other humans besides the subject.`;
 
     console.log('Sending request to OpenAI...');
@@ -50,7 +51,6 @@ Keep prompts under 75 tokens. No other humans besides the subject.`;
             content: prompt
           }
         ],
-        response_format: { type: "json_object" },
         temperature: 0.7,
         max_tokens: 2000
       })
@@ -64,28 +64,30 @@ Keep prompts under 75 tokens. No other humans besides the subject.`;
     const response = await completion.json();
     console.log('OpenAI response:', response);
 
-    const parsedContent = JSON.parse(response.choices[0].message.content);
-    console.log('Parsed content:', parsedContent);
+    try {
+      // The response should be a JSON string in the message content
+      let prompts = JSON.parse(response.choices[0].message.content);
+      console.log('Parsed prompts:', prompts);
 
-    // Handle both possible response formats
-    let prompts;
-    if (Array.isArray(parsedContent)) {
-      prompts = parsedContent;
-    } else if (parsedContent.data && Array.isArray(parsedContent.data)) {
-      prompts = parsedContent.data;
-    } else {
-      throw new Error('Invalid response structure from AI model');
+      // Ensure we got an array
+      if (!Array.isArray(prompts)) {
+        throw new Error('AI response was not in the expected array format');
+      }
+
+      // Validate each prompt
+      prompts = prompts.map(prompt => {
+        if (!prompt.imageNumber || !prompt.imagePrompt || !prompt.imageRatio) {
+          throw new Error('Invalid prompt format in AI response');
+        }
+        return prompt;
+      });
+
+      return prompts;
+    } catch (parseError) {
+      console.error('Parse error:', parseError);
+      console.error('Raw content:', response.choices[0].message.content);
+      throw new Error('Failed to parse AI response');
     }
-
-    // Validate the prompts
-    if (!prompts.every(prompt => 
-      prompt.imageNumber && 
-      prompt.imagePrompt && 
-      prompt.imageRatio)) {
-      throw new Error('Invalid prompt format in AI response');
-    }
-
-    return prompts;
 
   } catch (error) {
     console.error("Error in generatePrompts:", error);
