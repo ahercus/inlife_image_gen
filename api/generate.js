@@ -71,6 +71,8 @@ Each imagePrompt must include in this order:
           response_format: {
             type: "json_schema",
             json_schema: {
+              $schema: "http://json-schema.org/draft-07/schema#",
+              name: "FluxPromptsResponse",
               type: "array",
               items: {
                 type: "object",
