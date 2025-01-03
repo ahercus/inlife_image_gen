@@ -27,8 +27,8 @@ const fetchWithTimeout = async (url, options, timeout) => {
   }
 };
 
-const generatePrompts = async (prompt, model, start, end) => {
-  console.log(`🎯 Generating prompts ${start}-${end} with model ${model}`);
+const generatePrompts = async (prompt, start, end) => {
+  console.log(`🎯 Generating prompts ${start}-${end}`);
   try {
     const systemPrompt = `You are a helpful assistant that generates optimized image prompts for Flux based on the user's vision. Generate prompts for image numbers ${start} through ${end} only.
 
@@ -47,9 +47,7 @@ Each imagePrompt must include in this order:
 4. Key visual elements
 5. Mood/emotion
 6. Style ("iPhone")
-7. Lighting and color tones
-
-IMPORTANT: Respond ONLY with the specified JSON structure. Do not include any additional text or explanation.`;
+7. Lighting and color tones`;
 
     console.log('📤 Sending request to OpenAI API...');
     console.time('OpenAI API Request');
@@ -63,7 +61,7 @@ IMPORTANT: Respond ONLY with the specified JSON structure. Do not include any ad
           'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
         },
         body: JSON.stringify({
-          model: model,
+          model: "gpt-4o-2024-08-06",
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: prompt }
@@ -73,31 +71,23 @@ IMPORTANT: Respond ONLY with the specified JSON structure. Do not include any ad
           response_format: {
             type: "json_schema",
             json_schema: {
-              type: "object",
-              required: ["prompts"],
-              properties: {
-                prompts: {
-                  type: "array",
-                  minItems: 1,
-                  maxItems: 49,
-                  items: {
-                    type: "object",
-                    required: ["imageNumber", "imagePrompt", "imageRatio"],
-                    properties: {
-                      imageNumber: {
-                        type: "number",
-                        minimum: 1,
-                        maximum: 49
-                      },
-                      imagePrompt: {
-                        type: "string",
-                        minLength: 1
-                      },
-                      imageRatio: {
-                        type: "string",
-                        enum: ["1:1", "3:4", "4:3", "16:9"]
-                      }
-                    }
+              type: "array",
+              items: {
+                type: "object",
+                required: ["imageNumber", "imagePrompt", "imageRatio"],
+                properties: {
+                  imageNumber: {
+                    type: "number",
+                    minimum: 1,
+                    maximum: 49
+                  },
+                  imagePrompt: {
+                    type: "string",
+                    minLength: 1
+                  },
+                  imageRatio: {
+                    type: "string",
+                    enum: ["1:1", "3:4", "4:3", "16:9"]
                   }
                 }
               }
@@ -127,13 +117,14 @@ IMPORTANT: Respond ONLY with the specified JSON structure. Do not include any ad
     }
 
     try {
-      // Response is guaranteed to match our schema
-      const promptsData = JSON.parse(response.choices[0].message.content);
+      const content = response.choices[0].message.content;
+      console.log('📄 Raw content:', content);
       
-      // Sort the prompts by image number
-      const validatedPrompts = promptsData.prompts.sort((a, b) => a.imageNumber - b.imageNumber);
+      // Parse the response - it's guaranteed to match our schema
+      const promptsData = JSON.parse(content);
       
-      return validatedPrompts;
+      // Just sort by image number
+      return promptsData.sort((a, b) => a.imageNumber - b.imageNumber);
     } catch (parseError) {
       console.error('Parse error:', parseError);
       console.error('Raw content:', response.choices[0].message.content);
@@ -149,7 +140,10 @@ IMPORTANT: Respond ONLY with the specified JSON structure. Do not include any ad
 };
 
 export default async function handler(req) {
+  console.log('📥 API Request received');
+  
   if (req.method !== 'POST') {
+    console.log('❌ Invalid method:', req.method);
     return new Response(
       JSON.stringify({ error: 'Method not allowed' }), 
       { 
@@ -163,9 +157,12 @@ export default async function handler(req) {
   }
 
   try {
+    console.log('🔍 Parsing request body...');
     const body = await req.json();
+    console.log('📝 Request body:', body);
 
     if (!body.prompt?.trim()) {
+      console.log('❌ Empty prompt received');
       return new Response(
         JSON.stringify({ error: 'Prompt is required' }), 
         { 
@@ -176,8 +173,9 @@ export default async function handler(req) {
     }
 
     if (!process.env.OPENAI_API_KEY) {
+      console.error('❌ OpenAI API key not configured');
       return new Response(
-        JSON.stringify({ error: 'API key not configured' }), 
+        JSON.stringify({ error: 'OpenAI API key not configured' }), 
         { 
           status: 500,
           headers: { 'Content-Type': 'application/json' }
@@ -185,35 +183,52 @@ export default async function handler(req) {
       );
     }
 
+    console.log('⚡ Starting parallel prompt generation...');
     // Generate prompts in parallel for better performance
     const [firstHalf, secondHalf] = await Promise.all([
-      generatePrompts(body.prompt, "gpt-4o", 1, 24),
-      generatePrompts(body.prompt, "gpt-4o", 25, 49)
-    ]);
+      generatePrompts(body.prompt, 1, 24),
+      generatePrompts(body.prompt, 25, 49)
+    ]).catch(error => {
+      console.error('❌ Error in prompt generation:', error);
+      throw error;
+    });
 
+    console.log('✨ Combining prompt results...');
     const combinedPrompts = [...firstHalf, ...secondHalf].sort(
       (a, b) => a.imageNumber - b.imageNumber
     );
 
+    console.log('✅ Successfully generated prompts:', combinedPrompts.length);
     return new Response(
       JSON.stringify(combinedPrompts),
       { 
         status: 200,
         headers: { 
           'Content-Type': 'application/json',
-          'Cache-Control': 'no-store'
+          'Cache-Control': 'no-store',
+          'Access-Control-Allow-Origin': '*'
         }
       }
     );
   } catch (error) {
+    console.error('❌ API Error:', error);
+    console.error('Error stack:', error.stack);
+    
     return new Response(
       JSON.stringify({ 
         error: error.message || 'Internal server error',
-        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        details: process.env.NODE_ENV === 'development' ? {
+          stack: error.stack,
+          name: error.name,
+          message: error.message
+        } : undefined
       }), 
       { 
         status: error.message.includes('timeout') ? 504 : 500,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        }
       }
     );
   }
