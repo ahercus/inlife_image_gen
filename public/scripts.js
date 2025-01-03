@@ -1,3 +1,4 @@
+// public/scripts.js
 document.addEventListener('DOMContentLoaded', () => {
     const generateBtn = document.querySelector('.generate-btn');
     const visionInput = document.querySelector('.vision-input');
@@ -15,13 +16,16 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   
     function showError(message) {
+      console.error('Error occurred:', message);
       const errorDiv = document.createElement('div');
       errorDiv.className = 'error-message';
       errorDiv.textContent = message;
       promptsContainer.insertBefore(errorDiv, promptsContainer.firstChild);
+      promptsContainer.style.display = 'block';
     }
   
     function createPromptBox(prompt) {
+      console.log('Creating prompt box for:', prompt);
       const div = document.createElement('div');
       div.className = 'prompt-box';
       
@@ -39,12 +43,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   
     function displayPrompts(prompts) {
+      console.log('Displaying prompts:', prompts);
+      
       // Clear any existing error messages
       const existingErrors = document.querySelectorAll('.error-message');
       existingErrors.forEach(error => error.remove());
   
       // Sort prompts by image number
       prompts.sort((a, b) => a.imageNumber - b.imageNumber);
+      console.log('Sorted prompts:', prompts);
   
       // Clear existing prompts
       Object.keys(categoryRanges).forEach(gridId => {
@@ -65,11 +72,17 @@ document.addEventListener('DOMContentLoaded', () => {
           }
         }
   
+        console.log(`Prompt #${promptNumber} assigned to grid: ${targetGridId}`);
+  
         if (targetGridId) {
           const grid = document.getElementById(targetGridId);
           if (grid) {
             grid.appendChild(createPromptBox(prompt));
+          } else {
+            console.warn(`Grid not found for ID: ${targetGridId}`);
           }
+        } else {
+          console.warn(`No matching grid found for prompt #${promptNumber}`);
         }
       });
   
@@ -79,6 +92,7 @@ document.addEventListener('DOMContentLoaded', () => {
   
     async function generatePrompts() {
       const prompt = visionInput.value.trim();
+      console.log('Starting prompt generation with input:', prompt);
       
       if (!prompt) {
         showError('Please enter your vision first!');
@@ -91,6 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
       promptsContainer.style.display = 'none';
   
       try {
+        console.log('Sending API request...');
         const response = await fetch('/api/generate', {
           method: 'POST',
           headers: {
@@ -99,7 +114,9 @@ document.addEventListener('DOMContentLoaded', () => {
           body: JSON.stringify({ prompt }),
         });
   
+        console.log('API Response status:', response.status);
         const data = await response.json();
+        console.log('API Response data:', data);
   
         if (!response.ok) {
           throw new Error(data.message || 'Failed to generate prompts');
@@ -110,10 +127,18 @@ document.addEventListener('DOMContentLoaded', () => {
           return;
         }
   
+        // Log specific data validation
+        if (Array.isArray(data)) {
+          console.log('Number of prompts received:', data.length);
+          console.log('Sample prompt structure:', data[0]);
+        } else {
+          console.warn('Unexpected data structure:', data);
+        }
+  
         displayPrompts(data);
   
       } catch (error) {
-        console.error('Error:', error);
+        console.error('Error in generatePrompts:', error);
         showError(error.message || 'Failed to generate prompts. Please try again.');
       } finally {
         generateBtn.disabled = false;
@@ -122,7 +147,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   
     // Event Listeners
-    generateBtn.addEventListener('click', generatePrompts);
+    generateBtn.addEventListener('click', () => {
+      console.log('Generate button clicked');
+      generatePrompts();
+    });
     
     visionInput.addEventListener('keypress', (event) => {
       if (event.key === 'Enter' && event.shiftKey) {
@@ -130,4 +158,7 @@ document.addEventListener('DOMContentLoaded', () => {
         generatePrompts();
       }
     });
+  
+    // Log initial setup completion
+    console.log('Script initialized successfully');
   });

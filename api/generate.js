@@ -5,41 +5,33 @@ export const config = {
 
 const generatePrompts = async (prompt, model, start, end) => {
   try {
-    const systemPrompt = `You are a helpful assistant that generates optimized image prompts for Flux based on the user's vision. Your goal is to create image prompts that align with the user's aspirations and maximize visual impact while following these guidelines:
+    const systemPrompt = `You are a helpful assistant that generates optimized image prompts for Flux based on the user's vision. Generate prompts for image numbers ${start} through ${end} only.
 
-    You are responsible for image numbers ${start} to ${end} only.
+Return a JSON array containing objects with exactly these fields:
+- imageNumber (number)
+- imagePrompt (string)
+- imageRatio (string)
 
-    Image Categories:
-    - Portrait Images (#1-5): 3:4 ratio, featuring "Me, a woman/man"
-    - Establishing Shots (#6-9): 16:9 ratio
-    - Editorial Vignettes (#10 & #19): 4:3 ratio
-    - Editorial Vignettes (#11-18): 3:4 ratio
-    - Close-Up Shots (#20-31): 1:1 ratio
-    - Macro Shots (#32-35): 1:1 ratio
-    - Contextual Shots (#36-49): 4:3 ratio
+Follow these specifications exactly:
+Portrait Images (#1-5): ratio "3:4"
+Establishing Shots (#6-9): ratio "16:9"
+Editorial Vignettes (#10-19): ratio "4:3" for #10 & #19, "3:4" for #11-18
+Close-Up Shots (#20-31): ratio "1:1"
+Macro Shots (#32-35): ratio "1:1"
+Contextual Shots (#36-49): ratio "4:3"
 
-    Each prompt must include:
-    - Shot type
-    - Aspect ratio
-    - Subject ("Me, a woman/man" for #1-5)
-    - Imagery details
-    - Environment
-    - Mood/emotion
-    - Style ("iPhone")
-    - Color and ambiance
+Each imagePrompt must include in this order:
+1. Shot type
+2. Subject ("Me, a woman/man" for #1-5)
+3. Environment
+4. Key visual elements
+5. Mood/emotion
+6. Style ("iPhone")
+7. Lighting and color tones
 
-    Format prompts as short phrases separated by commas.
-    Maintain consistent style across all prompts.
-    No discernible humans except the subject.
-    Each prompt should be under 75 tokens.
+Keep prompts under 75 tokens. No other humans besides the subject.`;
 
-    Return a JSON array of objects with:
-    {
-      "imageNumber": (number),
-      "imagePrompt": (string),
-      "imageRatio": (string e.g. "3:4")
-    }`;
-
+    console.log('Sending request to OpenAI...');
     const completion = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -70,27 +62,33 @@ const generatePrompts = async (prompt, model, start, end) => {
     }
 
     const response = await completion.json();
-    const content = response.choices[0].message.content;
-    
-    // Make sure we can parse the content
-    try {
-      const parsedContent = JSON.parse(content);
-      // Ensure it has a data property with our array
-      if (parsedContent && Array.isArray(parsedContent.data)) {
-        return parsedContent.data;
-      }
-      // If it's already an array, return it
-      if (Array.isArray(parsedContent)) {
-        return parsedContent;
-      }
-      throw new Error('Invalid response format');
-    } catch (parseError) {
-      console.error('Parse error:', parseError);
-      throw new Error('Failed to parse AI response');
+    console.log('OpenAI response:', response);
+
+    const parsedContent = JSON.parse(response.choices[0].message.content);
+    console.log('Parsed content:', parsedContent);
+
+    // Handle both possible response formats
+    let prompts;
+    if (Array.isArray(parsedContent)) {
+      prompts = parsedContent;
+    } else if (parsedContent.data && Array.isArray(parsedContent.data)) {
+      prompts = parsedContent.data;
+    } else {
+      throw new Error('Invalid response structure from AI model');
     }
 
+    // Validate the prompts
+    if (!prompts.every(prompt => 
+      prompt.imageNumber && 
+      prompt.imagePrompt && 
+      prompt.imageRatio)) {
+      throw new Error('Invalid prompt format in AI response');
+    }
+
+    return prompts;
+
   } catch (error) {
-    console.error("Error generating prompts:", error);
+    console.error("Error in generatePrompts:", error);
     return { message: error.message || "An error occurred while generating prompts." };
   }
 };
@@ -104,9 +102,10 @@ export default async function handler(req) {
   }
 
   try {
-    const { prompt } = await req.json();
+    const body = await req.json();
+    console.log('Received request body:', body);
 
-    if (!prompt) {
+    if (!body.prompt) {
       return new Response(JSON.stringify({ message: 'Prompt is required' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
@@ -120,43 +119,21 @@ export default async function handler(req) {
       });
     }
 
-    // Generate first half of prompts
-    console.log('Generating first half...');
-    const firstHalfPrompts = await generatePrompts(prompt, "gpt-4o", 1, 24);
-    
-    // Check for errors in first half
-    if (firstHalfPrompts.message) {
-      return new Response(
-        JSON.stringify({ message: firstHalfPrompts.message }), 
-        {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      );
+    // Generate prompts sequentially for better error handling
+    console.log('Generating first half of prompts...');
+    const firstHalf = await generatePrompts(body.prompt, "gpt-4", 1, 24);
+    if (firstHalf.message) {
+      throw new Error(firstHalf.message);
     }
 
-    // Generate second half of prompts
-    console.log('Generating second half...');
-    const secondHalfPrompts = await generatePrompts(prompt, "gpt-4o", 25, 49);
-    
-    // Check for errors in second half
-    if (secondHalfPrompts.message) {
-      return new Response(
-        JSON.stringify({ message: secondHalfPrompts.message }), 
-        {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      );
+    console.log('Generating second half of prompts...');
+    const secondHalf = await generatePrompts(body.prompt, "gpt-4", 25, 49);
+    if (secondHalf.message) {
+      throw new Error(secondHalf.message);
     }
 
-    // Both calls succeeded, combine the results
-    const combinedPrompts = [...firstHalfPrompts, ...secondHalfPrompts];
-
-    // Validate the combined results
-    if (!Array.isArray(combinedPrompts)) {
-      throw new Error('Invalid response format from AI model');
-    }
+    const combinedPrompts = [...firstHalf, ...secondHalf];
+    console.log('Successfully combined prompts:', combinedPrompts.length);
 
     return new Response(JSON.stringify(combinedPrompts), {
       status: 200,
@@ -164,7 +141,7 @@ export default async function handler(req) {
     });
 
   } catch (error) {
-    console.error("Error during processing:", error);
+    console.error("Error in API handler:", error);
     return new Response(
       JSON.stringify({ message: error.message || 'Internal server error.' }), 
       {
