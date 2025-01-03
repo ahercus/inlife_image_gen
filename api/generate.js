@@ -69,39 +69,41 @@ Image numbers must be between 1 and 49.`;
           ],
           temperature: 0.7,
           max_tokens: 2000,
-          response_format: {
-            type: "json_schema",
-            json_schema: {
-              strict: true,
-                name: "FluxPromptsResponse",
-                description: "A structured response containing image prompts for a vision board",
-                type: "object",
-                properties: {
-                  prompts: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        imageNumber: {
-                          type: "integer"
+            response_format: {
+                type: "json_schema",
+                json_schema: {
+                     strict: true,
+                      name: "FluxPromptsResponse",
+                      description: "A structured response containing image prompts for a vision board",
+                      schema: { // Added the schema key
+                        type: "object",
+                        properties: {
+                          prompts: {
+                            type: "array",
+                            items: {
+                              type: "object",
+                              properties: {
+                                imageNumber: {
+                                  type: "integer"
+                                },
+                                imagePrompt: {
+                                  type: "string"
+                                },
+                                imageRatio: {
+                                  type: "string",
+                                  enum: ["1:1", "3:4", "4:3", "16:9"]
+                                }
+                              },
+                              required: ["imageNumber", "imagePrompt", "imageRatio"],
+                              additionalProperties: false
+                            }
+                          }
                         },
-                        imagePrompt: {
-                          type: "string"
-                        },
-                        imageRatio: {
-                          type: "string",
-                          enum: ["1:1", "3:4", "4:3", "16:9"]
-                        }
-                      },
-                      required: ["imageNumber", "imagePrompt", "imageRatio"],
-                      additionalProperties: false
-                    }
+                        required: ["prompts"],
+                        additionalProperties: false
+                      }
                   }
-                },
-                required: ["prompts"],
-                additionalProperties: false
               }
-          }
         })
       },
       API_TIMEOUT
@@ -112,7 +114,7 @@ Image numbers must be between 1 and 49.`;
     if (!completion.ok) {
       const errorData = await completion.json().catch(() => null);
       throw new Error(
-        errorData?.error?.message || 
+        errorData?.error?.message ||
         `OpenAI API error: ${completion.status} ${completion.statusText}`
       );
     }
@@ -127,7 +129,7 @@ Image numbers must be between 1 and 49.`;
     try {
       const content = response.choices[0].message.content;
       console.log('📄 Raw content:', content);
-      
+
       const data = JSON.parse(content);
       const promptsData = data.prompts;
       return promptsData.sort((a, b) => a.imageNumber - b.imageNumber);
