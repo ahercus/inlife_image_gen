@@ -73,9 +73,8 @@ Image numbers must be between 1 and 49.`;
             type: "json_schema",
             json_schema: {
               strict: true,
-              name: "FluxPromptsResponse",
-              description: "A structured response containing image prompts for a vision board",
-              schema: {
+                name: "FluxPromptsResponse",
+                description: "A structured response containing image prompts for a vision board",
                 type: "object",
                 properties: {
                   prompts: {
@@ -102,7 +101,6 @@ Image numbers must be between 1 and 49.`;
                 required: ["prompts"],
                 additionalProperties: false
               }
-            }
           }
         })
       },
