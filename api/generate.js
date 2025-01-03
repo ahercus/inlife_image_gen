@@ -46,30 +46,32 @@ Contextual Shots (#36-49): ratio "4:3"`;
     const response_format = {
       type: "json_schema",
       json_schema: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            imageNumber: {
-              type: "integer",
-              minimum: 1,
-              maximum: 49
+        name: "FluxPromptsResponse",
+        description: "A structured response containing image prompts for a vision board",
+        schema: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              imageNumber: {
+                type: "integer",
+                minimum: 1,
+                maximum: 49
+              },
+              imagePrompt: {
+                type: "string"
+              },
+              imageRatio: {
+                type: "string",
+                enum: ["1:1", "3:4", "4:3", "16:9"]
+              }
             },
-            imagePrompt: {
-              type: "string"
-            },
-            imageRatio: {
-              type: "string",
-              enum: ["1:1", "3:4", "4:3", "16:9"]
-            }
-          },
-          required: ["imageNumber", "imagePrompt", "imageRatio"],
-          additionalProperties: false
-        }
-      },
-      name: "FluxPromptsResponse",
-      description: "A structured response containing image prompts for a vision board",
-      strict: true
+            required: ["imageNumber", "imagePrompt", "imageRatio"],
+            additionalProperties: false
+          }
+        },
+        strict: true
+      }
     };
     
     const completion = await fetchWithTimeout(
