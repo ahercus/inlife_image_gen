@@ -1,16 +1,36 @@
 // api/generate.js
 export const config = {
   runtime: 'edge',
+  regions: ['iad1'], // US East (N. Virginia) for faster response times
+};
+
+const API_TIMEOUT = 25000; // 25 second timeout
+
+// Utility to handle API timeouts
+const fetchWithTimeout = async (url, options, timeout) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error('Request timeout');
+    }
+    throw error;
+  }
 };
 
 const generatePrompts = async (prompt, model, start, end) => {
+  console.log(`🎯 Generating prompts ${start}-${end} with model ${model}`);
   try {
     const systemPrompt = `You are a helpful assistant that generates optimized image prompts for Flux based on the user's vision. Generate prompts for image numbers ${start} through ${end} only.
-
-Format your response as a JSON array containing objects with exactly these fields:
-- imageNumber (number)
-- imagePrompt (string)
-- imageRatio (string)
 
 Follow these specifications exactly:
 Portrait Images (#1-5): ratio "3:4"
@@ -29,60 +49,91 @@ Each imagePrompt must include in this order:
 6. Style ("iPhone")
 7. Lighting and color tones
 
-IMPORTANT: Respond ONLY with the JSON array. Do not include any additional text or explanation.
-Keep prompts under 75 tokens. No other humans besides the subject.`;
+IMPORTANT: Respond ONLY with the specified JSON structure. Do not include any additional text or explanation.`;
 
-    console.log('Sending request to OpenAI...');
-    const completion = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: model,
-        messages: [
-          {
-            role: "system",
-            content: systemPrompt
-          },
-          {
-            role: "user",
-            content: prompt
+    console.log('📤 Sending request to OpenAI API...');
+    console.time('OpenAI API Request');
+    
+    const completion = await fetchWithTimeout(
+      'https://api.openai.com/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: prompt }
+          ],
+          temperature: 0.7,
+          max_tokens: 2000,
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              type: "object",
+              required: ["prompts"],
+              properties: {
+                prompts: {
+                  type: "array",
+                  minItems: 1,
+                  maxItems: 49,
+                  items: {
+                    type: "object",
+                    required: ["imageNumber", "imagePrompt", "imageRatio"],
+                    properties: {
+                      imageNumber: {
+                        type: "number",
+                        minimum: 1,
+                        maximum: 49
+                      },
+                      imagePrompt: {
+                        type: "string",
+                        minLength: 1
+                      },
+                      imageRatio: {
+                        type: "string",
+                        enum: ["1:1", "3:4", "4:3", "16:9"]
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
-        ],
-        temperature: 0.7,
-        max_tokens: 2000
-      })
-    });
+        })
+      },
+      API_TIMEOUT
+    );
+
+    console.timeEnd('OpenAI API Request');
 
     if (!completion.ok) {
-      const errorText = await completion.text();
-      throw new Error(`OpenAI API error: ${errorText}`);
+      const errorData = await completion.json().catch(() => null);
+      throw new Error(
+        errorData?.error?.message || 
+        `OpenAI API error: ${completion.status} ${completion.statusText}`
+      );
     }
 
     const response = await completion.json();
-    console.log('OpenAI response:', response);
+    console.log('📥 OpenAI API Response:', response);
+
+    // Check for refusal
+    if (response.choices[0].message.refusal) {
+      throw new Error(`Model refused to generate response: ${response.choices[0].message.refusal}`);
+    }
 
     try {
-      // The response should be a JSON string in the message content
-      let prompts = JSON.parse(response.choices[0].message.content);
-      console.log('Parsed prompts:', prompts);
-
-      // Ensure we got an array
-      if (!Array.isArray(prompts)) {
-        throw new Error('AI response was not in the expected array format');
-      }
-
-      // Validate each prompt
-      prompts = prompts.map(prompt => {
-        if (!prompt.imageNumber || !prompt.imagePrompt || !prompt.imageRatio) {
-          throw new Error('Invalid prompt format in AI response');
-        }
-        return prompt;
-      });
-
-      return prompts;
+      // Response is guaranteed to match our schema
+      const promptsData = JSON.parse(response.choices[0].message.content);
+      
+      // Sort the prompts by image number
+      const validatedPrompts = promptsData.prompts.sort((a, b) => a.imageNumber - b.imageNumber);
+      
+      return validatedPrompts;
     } catch (parseError) {
       console.error('Parse error:', parseError);
       console.error('Raw content:', response.choices[0].message.content);
@@ -90,65 +141,79 @@ Keep prompts under 75 tokens. No other humans besides the subject.`;
     }
 
   } catch (error) {
-    console.error("Error in generatePrompts:", error);
-    return { message: error.message || "An error occurred while generating prompts." };
+    if (error.message.includes('timeout')) {
+      throw new Error('Request timed out. Please try again.');
+    }
+    throw error;
   }
 };
 
 export default async function handler(req) {
   if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ message: 'Method Not Allowed' }), {
-      status: 405,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return new Response(
+      JSON.stringify({ error: 'Method not allowed' }), 
+      { 
+        status: 405,
+        headers: { 
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        }
+      }
+    );
   }
 
   try {
     const body = await req.json();
-    console.log('Received request body:', body);
 
-    if (!body.prompt) {
-      return new Response(JSON.stringify({ message: 'Prompt is required' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
+    if (!body.prompt?.trim()) {
+      return new Response(
+        JSON.stringify({ error: 'Prompt is required' }), 
+        { 
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
     }
 
     if (!process.env.OPENAI_API_KEY) {
-      return new Response(JSON.stringify({ message: 'OPENAI_API_KEY not configured' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      return new Response(
+        JSON.stringify({ error: 'API key not configured' }), 
+        { 
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
     }
 
-    // Generate prompts sequentially for better error handling
-    console.log('Generating first half of prompts...');
-    const firstHalf = await generatePrompts(body.prompt, "gpt-4", 1, 24);
-    if (firstHalf.message) {
-      throw new Error(firstHalf.message);
-    }
+    // Generate prompts in parallel for better performance
+    const [firstHalf, secondHalf] = await Promise.all([
+      generatePrompts(body.prompt, "gpt-4o", 1, 24),
+      generatePrompts(body.prompt, "gpt-4o", 25, 49)
+    ]);
 
-    console.log('Generating second half of prompts...');
-    const secondHalf = await generatePrompts(body.prompt, "gpt-4", 25, 49);
-    if (secondHalf.message) {
-      throw new Error(secondHalf.message);
-    }
+    const combinedPrompts = [...firstHalf, ...secondHalf].sort(
+      (a, b) => a.imageNumber - b.imageNumber
+    );
 
-    const combinedPrompts = [...firstHalf, ...secondHalf];
-    console.log('Successfully combined prompts:', combinedPrompts.length);
-
-    return new Response(JSON.stringify(combinedPrompts), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-  } catch (error) {
-    console.error("Error in API handler:", error);
     return new Response(
-      JSON.stringify({ message: error.message || 'Internal server error.' }), 
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' },
+      JSON.stringify(combinedPrompts),
+      { 
+        status: 200,
+        headers: { 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store'
+        }
+      }
+    );
+  } catch (error) {
+    return new Response(
+      JSON.stringify({ 
+        error: error.message || 'Internal server error',
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      }), 
+      { 
+        status: error.message.includes('timeout') ? 504 : 500,
+        headers: { 'Content-Type': 'application/json' }
       }
     );
   }
