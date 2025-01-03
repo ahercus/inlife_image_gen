@@ -16,26 +16,7 @@ const generatePrompts = async (prompt, model, start, end) => {
         messages: [
           {
             role: "system",
-            content: `You are a helpful assistant that generates optimized image prompts for Flux based on the user's vision. Your goal is to create image prompts that align with the user's aspirations and maximize visual impact while following these guidelines:
-
-            You are responsible for image numbers ${start} to ${end} only.
-            Each prompt must include: shot type, aspect ratio, subject, imagery, environment, mood/emotion, "iPhone" style, and color/ambiance.
-            
-            Image Categories:
-            - Portrait Images (#1-5): 3:4 ratio, featuring "Me, a woman/man"
-            - Establishing Shots (#6-9): 16:9 ratio
-            - Editorial Vignettes (#10 & #19): 4:3 ratio
-            - Editorial Vignettes (#11-18): 3:4 ratio
-            - Close-Up Shots (#20-31): 1:1 ratio
-            - Macro Shots (#32-35): 1:1 ratio
-            - Contextual Shots (#36-49): 4:3 ratio
-            
-            Return a JSON array of objects with:
-            - imageNumber: number
-            - imagePrompt: string (max 75 tokens)
-            - imageRatio: string (e.g. "3:4")
-            
-            Use iPhone style, no discernible humans except subject, keep prompts concise.`
+            content: `You are a helpful assistant that generates optimized image prompts for Flux based on the user's vision...`  // Your existing system prompt here
           },
           {
             role: "user",
@@ -51,14 +32,7 @@ const generatePrompts = async (prompt, model, start, end) => {
     }
 
     const response = await completion.json();
-    const parsedContent = JSON.parse(response.choices[0].message.content);
-    
-    // Check for error messages
-    if (parsedContent.message) {
-      return parsedContent;
-    }
-
-    return parsedContent;
+    return JSON.parse(response.choices[0].message.content);
 
   } catch (error) {
     console.error("Error generating prompts:", error);
@@ -91,13 +65,11 @@ export default async function handler(req) {
   }
 
   try {
-    // Run both halves of the prompt generation in parallel
     const [firstHalfPrompts, secondHalfPrompts] = await Promise.all([
-      generatePrompts(prompt, "gpt-4-turbo-preview", 1, 24),
-      generatePrompts(prompt, "gpt-4-turbo-preview", 25, 49),
+      generatePrompts(prompt, "gpt-4o", 1, 24),
+      generatePrompts(prompt, "gpt-4o", 25, 49),
     ]);
 
-    // Check for error messages from either half
     if (firstHalfPrompts.message || secondHalfPrompts.message) {
       return new Response(JSON.stringify({ message: firstHalfPrompts.message || secondHalfPrompts.message }), {
         status: 400,
@@ -105,7 +77,6 @@ export default async function handler(req) {
       });
     }
 
-    // Combine the results
     const combinedPrompts = [...firstHalfPrompts, ...secondHalfPrompts];
 
     return new Response(JSON.stringify(combinedPrompts), {
