@@ -38,19 +38,39 @@ Establishing Shots (#6-9): ratio "16:9"
 Editorial Vignettes (#10-19): ratio "4:3" for #10 & #19, "3:4" for #11-18
 Close-Up Shots (#20-31): ratio "1:1"
 Macro Shots (#32-35): ratio "1:1"
-Contextual Shots (#36-49): ratio "4:3"
-
-Each imagePrompt must include in this order:
-1. Shot type
-2. Subject ("Me, a woman/man" for #1-5)
-3. Environment
-4. Key visual elements
-5. Mood/emotion
-6. Style ("iPhone")
-7. Lighting and color tones`;
+Contextual Shots (#36-49): ratio "4:3"`;
 
     console.log('📤 Sending request to OpenAI API...');
     console.time('OpenAI API Request');
+
+    const response_format = {
+      type: "json_schema",
+      json_schema: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            imageNumber: {
+              type: "integer",
+              minimum: 1,
+              maximum: 49
+            },
+            imagePrompt: {
+              type: "string"
+            },
+            imageRatio: {
+              type: "string",
+              enum: ["1:1", "3:4", "4:3", "16:9"]
+            }
+          },
+          required: ["imageNumber", "imagePrompt", "imageRatio"],
+          additionalProperties: false
+        }
+      },
+      name: "FluxPromptsResponse",
+      description: "A structured response containing image prompts for a vision board",
+      strict: true
+    };
     
     const completion = await fetchWithTimeout(
       'https://api.openai.com/v1/chat/completions',
@@ -68,33 +88,7 @@ Each imagePrompt must include in this order:
           ],
           temperature: 0.7,
           max_tokens: 2000,
-          response_format: {
-            type: "json_schema",
-            json_schema: {
-              $schema: "http://json-schema.org/draft-07/schema#",
-              name: "FluxPromptsResponse",
-              type: "array",
-              items: {
-                type: "object",
-                required: ["imageNumber", "imagePrompt", "imageRatio"],
-                properties: {
-                  imageNumber: {
-                    type: "number",
-                    minimum: 1,
-                    maximum: 49
-                  },
-                  imagePrompt: {
-                    type: "string",
-                    minLength: 1
-                  },
-                  imageRatio: {
-                    type: "string",
-                    enum: ["1:1", "3:4", "4:3", "16:9"]
-                  }
-                }
-              }
-            }
-          }
+          response_format
         })
       },
       API_TIMEOUT
